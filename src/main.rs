@@ -3,8 +3,9 @@ use regex::Regex;
 use rayon::iter::ParallelBridge;
 use rayon::prelude::ParallelIterator;
 use std::sync::mpsc::channel;
-
+use serde_json;
 use combinations::Combinations;
+use std::io::prelude::*;
 
 const PUZZLE : &str = "t. .i.d t..rt. .o .o. t... na. ..ne y.. .w.lm. ..cy d.ne";
 
@@ -61,6 +62,14 @@ impl Transform {
         }
         String::from_utf8(result).unwrap()
     }
+
+    fn into_hashmap(&self) -> HashMap<char,char>{
+        std::iter::zip(
+            self.current_r.iter(),
+            self.current_r.iter())
+            .map(|(a,b)| {(*a,*b)})
+            .collect()
+    }
     
 }
 
@@ -83,7 +92,7 @@ fn replace(search: &mut[u8], find: char, replace: char) {
     }
 }
 
-fn get_possibilities(t: &Transform, puzzle: &String, wordlist: &HashMap<usize,String>) -> Vec<Vec<String>> {
+fn get_possibilities(puzzle: &String, wordlist: &HashMap<usize,String>) -> Vec<Vec<String>> {
     puzzle.split(' ')
         .map(|word| {
             let regex = Regex::new(format!(r"(?m)^{}$", word).as_str()).unwrap();
@@ -152,24 +161,43 @@ fn main() {
 
     let mut possibility_histogram: Histogram<usize> = Histogram::new();
     let mut limiting_words: Histogram<String> = Histogram::new();
+
+    type TransformHash = HashMap<char,char>;
+    type Possibilities = Vec<Vec<String>>;
+    type CombinationsList =  Vec<(TransformHash,Possibilities)>;
+    let mut all_combinations: CombinationsList = vec![];
     loop {
         count += 1;
         
         let done = !transform.next();
-        if done {return;}
+        if done {
+            let mut file = std::fs::File::create("output.json").unwrap();
+            
+            file.write_all(
+                serde_json::to_string(&all_combinations)
+                    .unwrap()
+                    .as_bytes()
+                )
+                .unwrap();
+            return;
+        }
         result = transform.apply(PUZZLE.to_string());
-        let mut possibilities = get_possibilities(&transform, &result,&word_list);
+        let mut possibilities = get_possibilities(&result,&word_list);
 
+        if possibilities.iter().map(|x| x.len()).min().unwrap() > 0 {
+            all_combinations.push((transform.into_hashmap(),possibilities.clone()));
+        }
         possibilities.sort_by(|a,b| a.len().cmp(&b.len()));
         possibility_histogram.push(&possibilities[0].len());
         possibilities[0].iter()
             .for_each(|word| limiting_words.push(word));
 
+
         if now.elapsed().as_secs() > 10 {
             println!("Transform updated x{}: {}",count, transform);
-            println!("updates/sec: {}", count/10);
+            //println!("updates/sec: {}", count/10);
             println!("Possibilities: {:?}",possibility_histogram.data);
-            println!("Limiting words: {:?}",limiting_words.data);
+            println!("All words: {:?}",limiting_words.data);
             now = Instant::now();
         }
     }
