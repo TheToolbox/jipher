@@ -1,8 +1,7 @@
-use std::{collections::HashMap, hash::Hash, time::Instant};
+use std::{collections::HashMap, hash::Hash};//, time::Instant};
 use regex::Regex;
 use rayon::iter::ParallelBridge;
 use rayon::prelude::ParallelIterator;
-use std::sync::mpsc::channel;
 use serde_json;
 use combinations::Combinations;
 use std::io::prelude::*;
@@ -12,34 +11,27 @@ const PUZZLE : &str = "t. .i.d t..rt. .o .o. t... na. ..ne y.. .w.lm. ..cy d.ne"
 //fs.readFileSync('./node_modules/word-list/commons.txt', 'utf8').split('\n')
 //.filter(word => word.length < 7);
 
-struct Transform {
+#[derive(Clone)]
+struct Transform<'a> {
     //mappings: [u8; 10],
-    left: Combinations<char>,
-    right: Combinations<char>,
-    current_l: Vec<char>,
-    current_r: Vec<char>,
+    left: &'a Vec<char>,
+    right: &'a Vec<char>,
 }
 
-impl Transform {
+impl<'a> Transform<'a> {
     //tidronaeywlmc
 
     const L_LETTERS : [char; 13] = ['t','i','d','r','o','n','a','e','y','w','l','m','c'];
     const R_LETTERS : [char; 26] = ['a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z'];
 
-    fn init() -> Transform {
-        let mut l = Combinations::new(Self::L_LETTERS.into(), 5);
-        let mut r = Combinations::new(Self::R_LETTERS.into(), 5);
-        let curr_l = l.next().unwrap();
-        let curr_r = r.next().unwrap();
+    fn new(l: &'a Vec<char>, r: &'a Vec<char>) -> Transform<'a> {
         Transform {
             left: l,
             right: r,
-            current_l: curr_l,
-            current_r: curr_r,
         }
     }
 
-    fn next(&mut self) -> bool {
+    /*fn next(&mut self) -> bool {
 
         let done = !self.right.next_combination(&mut self.current_r);
         if done {
@@ -47,12 +39,12 @@ impl Transform {
             return self.left.next_combination(&mut self.current_l);
         }
         return true;
-    }
+    }*/
 
     fn apply(&self, mut str: String) -> String {
         let mut result = std::mem::take(&mut str).into_bytes();
         //println!("Applying transform: {}",self);
-        for t in std::iter::zip(self.current_l.iter(),self.current_r.iter()) {
+        for t in std::iter::zip(self.left.iter(),self.right.iter()) {
             //println!("Replacing {} with {}",*t.0,*t.1);
             replace(
                 &mut result,
@@ -65,19 +57,44 @@ impl Transform {
 
     fn into_hashmap(&self) -> HashMap<char,char>{
         std::iter::zip(
-            self.current_r.iter(),
-            self.current_r.iter())
+            self.right.iter(),
+            self.right.iter())
             .map(|(a,b)| {(*a,*b)})
             .collect()
     }
+
+
     
 }
 
-impl std::fmt::Display for Transform {
+type TransformHash = HashMap<char,char>;
+type Possibilities = Vec<Vec<String>>;
+type TransformAndPossibilities = (TransformHash,Possibilities);
+type TransformAndPossibilitiesList =  Vec<TransformAndPossibilities>;
+struct Transforms {}
+
+impl Transforms {
+    fn parallel_map(inner: impl Fn(&Transform) -> Option<TransformAndPossibilities> + Sync) -> TransformAndPossibilitiesList {
+        let left_combinator = Combinations::new(Transform::L_LETTERS.into(),5);
+        left_combinator.par_bridge()
+            .map(|left| {
+                let right_combinator = Combinations::new(Transform::R_LETTERS.into(), 5);
+                right_combinator.filter_map(|right| {
+                    let transform = Transform::new(&left,&right);
+                    inner(&transform)
+                })
+                .collect::<TransformAndPossibilitiesList>()
+            })
+            .flatten()
+            .collect()
+    }
+}
+
+impl std::fmt::Display for Transform<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> { 
         write!(f, "| ")?;
         for i in 0..5 {
-            write!(f, "{}➔ {} | ", self.current_l[i], self.current_r[i])?;
+            write!(f, "{}➔ {} | ", self.left[i], self.right[i])?;
         }
         Ok(())
     }
@@ -142,73 +159,58 @@ fn main() {
         words
     };
 
-    println!("{}",PUZZLE);
+    println!("Puzzle: {}",PUZZLE);
     println!("Loaded wordlist: {:?}",word_list.clone().into_iter().map(|(size,words)| (size,words.len())).collect::<HashMap<_,_>>());
-    let mut str = String::from("abc");
-    let mut x = std::mem::take(&mut str).into_bytes();
-    replace(&mut x, 'a', 'i');
-    println!("Replacing 'a' in abc with i: {} ",std::str::from_utf8(&x).unwrap());
 
-    let mut result = String::from(PUZZLE);
-    let mut transform = Transform::init();
-    println!("Transform initialized: {}",transform);
+    /*let mut result = String::from(PUZZLE);
 
     let mut now = std::time::Instant::now();
     let mut count: u64 = 0;
-    println!("{}",result);
-    result = transform.apply(result);
-    println!("{}",result);
 
     let mut possibility_histogram: Histogram<usize> = Histogram::new();
-    let mut limiting_words: Histogram<String> = Histogram::new();
-
-    type TransformHash = HashMap<char,char>;
-    type Possibilities = Vec<Vec<String>>;
-    type CombinationsList =  Vec<(TransformHash,Possibilities)>;
-    let mut all_combinations: CombinationsList = vec![];
-    loop {
-        count += 1;
+    let mut limiting_words: Histogram<String> = Histogram::new();*/
+    
+    let result = Transforms::parallel_map(|transform| {
         
-        let done = !transform.next();
-        if done {
-            let mut file = std::fs::File::create("output.json").unwrap();
-            
-            file.write_all(
-                serde_json::to_string(&all_combinations)
-                    .unwrap()
-                    .as_bytes()
-                )
-                .unwrap();
-            return;
-        }
-        result = transform.apply(PUZZLE.to_string());
-        let mut possibilities = get_possibilities(&result,&word_list);
+        let result = transform.apply(PUZZLE.to_string());
+        let possibilities = get_possibilities(&result,&word_list);
 
         if possibilities.iter().map(|x| x.len()).min().unwrap() > 0 {
-            all_combinations.push((transform.into_hashmap(),possibilities.clone()));
+            Some((transform.into_hashmap(),possibilities))
+        } else {
+            None
         }
-        possibilities.sort_by(|a,b| a.len().cmp(&b.len()));
-        possibility_histogram.push(&possibilities[0].len());
-        possibilities[0].iter()
-            .for_each(|word| limiting_words.push(word));
+        //possibilities.sort_by(|a,b| a.len().cmp(&b.len()));
+        //possibility_histogram.push(&possibilities[0].len());
+        //possibilities[0].iter()
+        //    .for_each(|word| limiting_words.push(word));
 
+    });
 
-        if now.elapsed().as_secs() > 10 {
-            println!("Transform updated x{}: {}",count, transform);
-            //println!("updates/sec: {}", count/10);
-            println!("Possibilities: {:?}",possibility_histogram.data);
-            println!("All words: {:?}",limiting_words.data);
-            now = Instant::now();
-        }
-    }
+    /*if now.elapsed().as_secs() > 10 {
+        //println!("Transform updated x{}: {}",count);
+        //println!("updates/sec: {}", count/10);
+        println!("Possibilities: {:?}",possibility_histogram.data);
+        println!("All words: {:?}",limiting_words.data);
+        now = Instant::now();
+    }*/
 
+    let mut file = std::fs::File::create("output.json").unwrap();
+            
+    file.write_all(
+        serde_json::to_string(&result)
+            .unwrap()
+            .as_bytes()
+        )
+        .unwrap();
 }
 
-
+#[allow(dead_code)]
 struct Histogram<T> {
     data: HashMap<T,usize>
 }
 
+#[allow(dead_code)]
 impl<T: Eq + Hash + Clone> Histogram<T> {
     fn new() -> Histogram<T> {
         Histogram {
