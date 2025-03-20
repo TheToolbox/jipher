@@ -1,4 +1,6 @@
-use std::{collections::HashMap, hash::Hash};//, time::Instant};
+use core::time;
+use std::sync::Mutex;
+use std::{collections::HashMap, hash::Hash, time::Instant};
 use regex::Regex;
 use rayon::iter::ParallelBridge;
 use rayon::prelude::ParallelIterator;
@@ -73,17 +75,51 @@ type TransformAndPossibilities = (TransformHash,Possibilities);
 type TransformAndPossibilitiesList =  Vec<TransformAndPossibilities>;
 struct Transforms {}
 
+//use std::sync::atomic::{AtomicUsize, Ordering};
+static COUNT : std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 impl Transforms {
     fn parallel_map(inner: impl Fn(&Transform) -> Option<TransformAndPossibilities> + Sync) -> TransformAndPossibilitiesList {
+        
+
+        rayon::spawn(|| {
+            let now = Instant::now();
+            println!("");
+            loop {
+                std::thread::sleep(
+                    time::Duration::from_secs(1)
+                );
+                print!("\r{}/1287 completed in {} seconds",
+                    COUNT.load(std::sync::atomic::Ordering::Relaxed),
+                    now.elapsed().as_secs()
+                );
+                std::io::stdout().flush().unwrap();
+                //println!("\r{} seconds elapsed",);
+
+            }
+            /*if now.elapsed().as_secs() > 10 {
+                //println!("Transform updated x{}: {}",count);
+                //println!("updates/sec: {}", count/10);
+                println!("Possibilities: {:?}",possibility_histogram.data);
+                println!("All words: {:?}",limiting_words.data);
+                now = Instant::now();
+            }*/
+        });
+
+
+        
         let left_combinator = Combinations::new(Transform::L_LETTERS.into(),5);
         left_combinator.par_bridge()
             .map(|left| {
+
                 let right_combinator = Combinations::new(Transform::R_LETTERS.into(), 5);
-                right_combinator.filter_map(|right| {
+                let result = right_combinator.filter_map(|right| {
                     let transform = Transform::new(&left,&right);
                     inner(&transform)
                 })
-                .collect::<TransformAndPossibilitiesList>()
+                .collect::<TransformAndPossibilitiesList>();
+                COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                result
             })
             .flatten()
             .collect()
@@ -187,13 +223,7 @@ fn main() {
 
     });
 
-    /*if now.elapsed().as_secs() > 10 {
-        //println!("Transform updated x{}: {}",count);
-        //println!("updates/sec: {}", count/10);
-        println!("Possibilities: {:?}",possibility_histogram.data);
-        println!("All words: {:?}",limiting_words.data);
-        now = Instant::now();
-    }*/
+
 
     let mut file = std::fs::File::create("output.json").unwrap();
             
