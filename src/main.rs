@@ -1,5 +1,4 @@
 use core::time;
-use std::sync::Mutex;
 use std::{collections::HashMap, hash::Hash, time::Instant};
 use regex::Regex;
 use rayon::iter::ParallelBridge;
