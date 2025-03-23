@@ -109,7 +109,7 @@ impl Transforms {
         let left_combinator = Combinations::new(Transform::L_LETTERS.into(),5);
         left_combinator.par_bridge()
             .map(|left| {
-
+                //if COUNT.load(std::sync::atomic::Ordering::Relaxed) > 0 { return vec![]; }
                 let right_combinator = Combinations::new(Transform::R_LETTERS.into(), 5);
                 let result = right_combinator.filter_map(|right| {
                     let transform = Transform::new(&left,&right);
