@@ -134,7 +134,6 @@ impl App {
                 },
             KeyCode::Tab => self.tab = 
                 if matches!(self.mode,Modes::SentenceBrowser) && self.tab >= self.words.sentence_length() - 1 {
-                    println!("{}",self.words.sentence_length());
                     0
                 } else {
                     self.tab.wrapping_add(1)
