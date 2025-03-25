@@ -1,13 +1,10 @@
-use core::panic;
-use std::{fmt::Debug, fs::{self, File}, hint, io::Read};
-
+use std::vec;
 use color_eyre::Result;
-use std::io;
 use std::fs::read_to_string;
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, ModifierKeyCode};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
+    layout::{Constraint, Layout, Rect},
     style::Stylize,
     symbols::border,
     text::{Line, Span, Text},
@@ -28,11 +25,13 @@ fn main() -> Result<()> {
 // Describes application state
 struct App {
     mode: Modes,
-    scroll: usize,
-    inputBuffer: Vec<char>,
+    scroll_level: usize,
+    input_buffer: Vec<char>,
     words: Words,
     tab: usize,
-    filename: String,
+    #[allow(dead_code)]
+    file_name: String,
+    eliminated: Vec<String>,
 }
 
 enum Modes {
@@ -49,13 +48,14 @@ impl App {
     fn new(filename: String) -> App {
         App {
             mode: Modes::Home,
-            scroll: 0,
-            inputBuffer: vec![],
+            scroll_level: 0,
+            input_buffer: vec![],
             words:     Words::new(
                 read_to_string(&filename).unwrap().as_str()
             ),
-            filename,
+            file_name: filename,
             tab: 0,
+            eliminated: vec![],
         }
     }
 
@@ -83,6 +83,10 @@ impl App {
         Ok(())
     }
 
+    fn scroll(&mut self, x: isize) {
+        self.scroll_level = self.scroll_level.saturating_add_signed(x);
+    }
+
     fn handle_key_event(&mut self, key_event: KeyEvent) {
         match key_event.code {
             //KeyCode::Char('q') => self.mode = Modes::Quit,
@@ -93,32 +97,66 @@ impl App {
             KeyCode::Char('4') => self.change_mode(Modes::RuleApply),
             KeyCode::Char('5') => self.change_mode(Modes::Save),
             KeyCode::Char(' ') => {
-                    self.words.require_word(self.inputBuffer.iter().collect());
-                },
-            KeyCode::Char(c) => {self.inputBuffer.push(c); self.scroll = 0},
-            KeyCode::Backspace => {self.inputBuffer.pop(); self.scroll = 0},
-            KeyCode::Enter => {
                     match self.mode {
-                        Modes::RuleApply => self.apply_rules(self.scroll),
-                        _ => self.words.remove_words(vec![self.inputBuffer.iter().collect()]),
+                        Modes::SentenceBrowser => {
+                            let to_require = self.input_buffer.iter().collect();
+                            self.eliminated.push(format!("+ Word {}: {}",self.tab + 1, to_require));
+                            self.eliminated.rotate_right(1);
+                            self.words.require_word_positional(to_require, self.tab);
+                        },
+                        _ => {
+                            let to_require = self.input_buffer.iter().collect();
+                            self.eliminated.push(format!("+ Word: {}",to_require));
+                            self.eliminated.rotate_right(1);
+                            self.words.require_word(to_require);
+                        }
                     }
                 },
-            KeyCode::Tab => self.tab = self.tab.wrapping_add(1),
-            KeyCode::Down => self.scroll = self.scroll.saturating_add(1),
-            KeyCode::Up => self.scroll = self.scroll.saturating_sub(1),
+            KeyCode::Char(c) => {self.input_buffer.push(c); self.scroll_level = 0},
+            KeyCode::Backspace => {self.input_buffer.pop(); self.scroll_level = 0},
+            KeyCode::Enter => {
+                    match self.mode {
+                        Modes::RuleApply => self.apply_rules(self.scroll_level),
+                        Modes::SentenceBrowser => {
+                            let to_remove = self.input_buffer.iter().collect();
+                            self.eliminated.push(format!("X Word {}: {}",self.tab + 1, to_remove));
+                            self.eliminated.rotate_right(1);
+                            self.words.remove_words_positional(vec![to_remove],self.tab);
+                        }
+                        _ => 
+                            {
+                                let to_remove = self.input_buffer.iter().collect();
+                                self.eliminated.push(format!("X Word: {}",to_remove));
+                                self.eliminated.rotate_right(1);
+                                self.words.remove_words(vec![to_remove]);
+                            },
+                    }
+                },
+            KeyCode::Tab => self.tab = 
+                if matches!(self.mode,Modes::SentenceBrowser) && self.tab >= self.words.sentence_length() - 1 {
+                    println!("{}",self.words.sentence_length());
+                    0
+                } else {
+                    self.tab.wrapping_add(1)
+                }
+            ,
+            KeyCode::Down => self.scroll(1),
+            KeyCode::Up => self.scroll(-1),
+            KeyCode::PageDown => self.scroll(10),
+            KeyCode::PageUp => self.scroll(-10),
             _ => {}
         }
     }
 
     fn change_mode(&mut self, new_mode : Modes) {
-        self.inputBuffer.clear();
+        self.input_buffer.clear();
         self.tab = 0;
-        self.scroll = 0;
+        self.scroll_level = 0;
         self.mode = new_mode;
     }
 
     fn input_buffer_display(&self) -> String {
-        format!("{: <6}", self.inputBuffer.iter().collect::<String>())
+        format!("{: <6}", self.input_buffer.iter().collect::<String>())
     }
 
     fn apply_rules(&mut self, index: usize) {
@@ -197,9 +235,9 @@ impl Widget for &App {
 
             match current_word_mode {
                 WordMode::Popular => {
-                    let selected_words = self.words.get_top(self.scroll..(self.scroll + 80),
+                    let selected_words = self.words.get_top(self.scroll_level..(self.scroll_level + 80),
                     |(word,_count)| {
-                                self.inputBuffer.len() < 1 || word.starts_with(&self.inputBuffer.iter().collect::<String>())
+                                self.input_buffer.len() < 1 || word.starts_with(&self.input_buffer.iter().collect::<String>())
                     });
 
                     selected_words.into_iter()
@@ -211,8 +249,8 @@ impl Widget for &App {
                 WordMode::Critical => {
                     self.words.critical_words()
                         .into_iter()
-                        .filter(|(word, _count)| word.starts_with(&self.inputBuffer.iter().collect::<String>()))
-                        .skip(self.scroll)
+                        .filter(|(word, _count)| word.starts_with(&self.input_buffer.iter().collect::<String>()))
+                        .skip(self.scroll_level)
                         .for_each(|(word,count)| lines.push(
                             Line::from(format!("  {: <8}: {: >18}",word,count))
                         ));
@@ -236,7 +274,7 @@ impl Widget for &App {
             ];
 
             let bullet = |target: usize| {
-                if self.scroll == target {
+                if self.scroll_level == target {
                     Span::from(String::from(" > ")).bold()
                 } else {
                     Span::from(String::from(" - "))
@@ -256,10 +294,82 @@ impl Widget for &App {
             
             Text::from(lines)
         };
+
+            //sentence browser
+        let sentence_browser = {
+            let puzzle = "t. .i.d t..rt. .o .o. t... na. ..ne y.. .w.lm. ..cy d.ne".to_string();
+            
+            let words = puzzle.split(" ")
+                .map(|word| " ".repeat(word.len()))
+                .collect::<Vec<_>>();
+            let words2 = words.clone();
+
+            let word_input = words.into_iter()
+                .enumerate()
+                .flat_map(|(index, word)| [
+                    if self.tab == index {
+                        let buffer : String = self.input_buffer.iter().collect();
+                        Span::from(
+                            format!("{: <width$}", buffer, width = word.len())
+                        ).underlined().blue()
+                    } else {
+                        Span::from(word).underlined()
+                    },
+                    Span::from(" ")
+                ])
+                .collect::<Vec<Span>>();
+
+            let mut popular_words = (self.scroll_level..self.scroll_level+10).into_iter()
+                .map(|line_index| {
+                    Line::from(
+                        self.words.positional_histograms().into_iter()
+                        .enumerate()
+                        .map(|(word_index, word_hist)| {
+                            if let Some((word,_)) = word_hist.most_popular()
+                                .iter()
+                                .filter(|(word,_)| {
+                                    word_index != self.tab || word.starts_with(&self.input_buffer.iter().collect::<String>())
+                                })
+                                .nth(line_index)
+                                {
+                                    word.clone() + " "
+                                } else {
+                                    words2[word_index].clone() + " "
+                                }
+                        })
+                        .collect::<String>()
+                    )
+                })
+                .collect::<Vec<Line>>();
+
+            let mut lines = vec![
+                Line::from(vec![
+                    Span::from("Use "),
+                    Span::from("<Tab>").blue(),
+                    Span::from(" to switch words. "),
+                ]),
+                Line::from(vec![
+                    Span::from("Use "),
+                    Span::from("<Enter>").blue(),
+                    Span::from(" to eliminate words or "),
+                    Span::from("<Space>").blue(),
+                    Span::from(" to lock in words at this position. "),
+                ]),
+                Line::from(""),
+                Line::from(puzzle).dim(),                   
+                Line::from(
+                    word_input
+                ),
+            ];
+
+            lines.append(&mut popular_words);
+
+            Text::from(lines)
+        };
             
 
         //text hints bar: gives text hints
-        let hint_bar = Line::from(self.inputBuffer.iter().collect::<String>());
+        let hint_bar = Line::from(self.input_buffer.iter().collect::<String>());
         //bottom bar: lists modes and indicates current mode
 
 
@@ -280,28 +390,51 @@ impl Widget for &App {
             "|".into(),
         ]);
 
-        let block = Block::bordered()
+        let outer_block = Block::bordered()
             .title(title.left_aligned())
             .title_bottom(bottom_bar.centered())
-            .border_set(border::THICK);
+            .border_set(border::ROUNDED)
+            .padding(ratatui::widgets::Padding::new(2, 2, 0, 0));
 
         let counter_text = Text::from(vec![Line::from(vec![
             "Value: ".into(),
-            self.scroll.to_string().yellow(),
+            self.scroll_level.to_string().yellow(),
         ]),
         hint_bar]);
 
-        Paragraph::new(
+
+        
+        let paragraph = Paragraph::new(
             match self.mode {
                 Modes::Home => home,
                 Modes::WordEliminator => word_browser,
                 Modes::RuleApply => rules_apply,
+                Modes::SentenceBrowser => sentence_browser,
                 _ => counter_text,
             }
         )
             .left_aligned()
-            .block(block)
-            .render(area, buf);
+            .block(outer_block);
+
+
+            let [main_area, elim_area] = Layout::horizontal([Constraint::Percentage(100),Constraint::Min(20)])
+                .areas(area);
+
+        paragraph.render(main_area, buf);
+
+        let elimblock = Block::bordered()
+        .title("History")
+        .border_set(border::ROUNDED);
+
+        let elim_paragraph = Paragraph::new(
+                Text::from(
+                    self.eliminated.join("\n")
+                )
+            )
+            .left_aligned()
+            .block(elimblock);
+
+        elim_paragraph.render(elim_area, buf);
     }
 
 }

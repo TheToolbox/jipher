@@ -1,5 +1,4 @@
 use serde_json;
-use core::time;
 use std::{collections::{HashMap, HashSet}, time::Duration, u64};
 
 type TransformHash = HashMap<char,char>;
@@ -7,6 +6,7 @@ type Possibilities = Vec<Vec<String>>;
 type TransformAndPossibilities = (TransformHash,Possibilities);
 type TransformAndPossibilitiesList =  Vec<TransformAndPossibilities>;
 
+#[allow(dead_code)]
 enum UpdatableValue<T> {
     Value(T),
     Updating,
@@ -17,6 +17,7 @@ pub struct Words {
     word_hist: Histogram<String>,//UpdatableValue<Histogram<String>>
     total_combinations: u64,
     critical_words: Histogram<String>,
+    positional_word_hists: Vec<Histogram<String>>
 }
 
 impl Words {
@@ -28,6 +29,7 @@ impl Words {
             word_hist: Histogram::new(),//UpdatableValue::Invalid,
             total_combinations: 0,
             critical_words: Histogram::new(),
+            positional_word_hists: vec![],
         };
         me.update_all();
         me
@@ -47,6 +49,7 @@ impl Words {
         self.update_word_hist();
         self.update_total_combinations();
         self.update_critical_words();
+        self.update_positional_word_hist();
     }
 
     fn update_word_hist(&mut self) {
@@ -63,6 +66,21 @@ impl Words {
             }
         });
         self.word_hist = word_hist;//UpdatableValue::Value(word_hist);
+    }
+
+    pub fn positional_histograms(&self) -> &Vec<Histogram<std::string::String>> {
+        &self.positional_word_hists
+    }
+
+    fn update_positional_word_hist(&mut self) {
+        let mut word_hists : Vec<Histogram<String>> = (0..self.state[0].1.len()).map(|_| Histogram::new()).collect();
+        self.state.iter()
+            .for_each(|(_,sentence)| {
+                for (i,wordlist) in sentence.iter().enumerate() {
+                    wordlist.iter().for_each(|word| word_hists[i].push(word));
+                }
+            });
+        self.positional_word_hists = word_hists;
     }
 
     pub fn get_top(&self, range: std::ops::Range<usize>, filter: impl FnMut(&(String,u64)) -> bool) -> Vec<(String,u64)> {
@@ -99,9 +117,21 @@ impl Words {
                 }
             }
         }
-
- 
         
+        self.update_all();
+    }
+
+    pub fn remove_words_positional(&mut self, words: Vec<String>, position: usize) {
+        if position > self.state[0].1.len() { panic!(); }
+
+        for target_word in words {
+            for (_transform, sentences) in &mut self.state {
+                if let Some(pos) = sentences[position].iter().position(|w| *w == *target_word) {
+                    sentences[position].swap_remove(pos);
+                }
+            }
+        }
+
         self.update_all();
     }
 
@@ -109,6 +139,14 @@ impl Words {
         self.state.retain(|(_, sentence)| {
             sentence.iter()
                 .any(|wordlist| wordlist.contains(&word))
+        });
+
+        self.update_all();
+    }
+
+    pub fn require_word_positional(&mut self, target_word: String, position: usize) {
+        self.state.iter_mut().for_each(|(_,sentence)| {
+            sentence[position].retain(|word| word == &target_word)
         });
 
         self.update_all();
@@ -163,6 +201,14 @@ impl Words {
             })
             .collect::<String>()
         )
+    }
+
+    pub fn sentence_length(&self) -> usize {
+        if let Some((_,sentences)) = self.state.get(0) {
+            sentences.len()
+        } else {
+            0
+        }
     }
 }
 
