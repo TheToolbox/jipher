@@ -318,7 +318,7 @@ impl Widget for &App {
                 ])
                 .collect::<Vec<Span>>();
 
-            let mut popular_words = (self.scroll_level..self.scroll_level+10).into_iter()
+            let mut popular_words = (self.scroll_level..self.scroll_level+40).into_iter()
                 .map(|line_index| {
                     Line::from(
                         self.words.positional_histograms().into_iter()
