@@ -17,7 +17,8 @@ pub struct Words {
     word_hist: Histogram<String>,//UpdatableValue<Histogram<String>>
     total_combinations: u64,
     critical_words: Histogram<String>,
-    positional_word_hists: Vec<Histogram<String>>
+    positional_word_hists: Vec<Histogram<String>>,
+    history: Vec<String>,
 }
 
 impl Words {
@@ -30,7 +31,9 @@ impl Words {
             total_combinations: 0,
             critical_words: Histogram::new(),
             positional_word_hists: vec![],
+            history: vec![],
         };
+        println!("Loaded output file, now processing for use...");
         me.update_all();
         me
     }
@@ -93,7 +96,7 @@ impl Words {
         self.total_combinations
     }
 
-    pub fn update_total_combinations(&mut self) {
+    fn update_total_combinations(&mut self) {
         self.total_combinations = self.state.iter()
             .map(|(_transform, words)| {
                 words.iter()
@@ -108,6 +111,7 @@ impl Words {
     }
 
     pub fn remove_words(&mut self, words: Vec<String>) {
+        let word_list = words.join(",");
         for word in words {
             for (_transform, words) in &mut self.state {
                 for word_list in words {
@@ -119,9 +123,14 @@ impl Words {
         }
         
         self.update_all();
+
+        self.history.push("X Words: ".to_string() + &word_list);  
+        self.history.rotate_right(1);
     }
 
     pub fn remove_words_positional(&mut self, words: Vec<String>, position: usize) {
+        let word_list = words.join(",");
+
         if position > self.state[0].1.len() { panic!(); }
 
         for target_word in words {
@@ -133,6 +142,9 @@ impl Words {
         }
 
         self.update_all();
+
+        self.history.push(format!("X Word {}: {}", position, word_list));
+        self.history.rotate_right(1);
     }
 
     pub fn require_word(&mut self, word: String) {
@@ -142,6 +154,9 @@ impl Words {
         });
 
         self.update_all();
+
+        self.history.push(format!("+ Words: {}", word));
+        self.history.rotate_right(1);
     }
 
     pub fn require_word_positional(&mut self, target_word: String, position: usize) {
@@ -150,6 +165,8 @@ impl Words {
         });
 
         self.update_all();
+        self.history.push(format!("+ Word {}: {}", position, target_word));
+        self.history.rotate_right(1);
     }
 
     pub fn critical_words(&self) -> Vec<(String,u64)> {
@@ -209,6 +226,10 @@ impl Words {
         } else {
             0
         }
+    }
+
+    pub fn history(&self) -> String {
+        self.history.clone().join("\n")
     }
 }
 

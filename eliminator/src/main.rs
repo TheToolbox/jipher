@@ -1,3 +1,4 @@
+use core::time;
 use std::vec;
 use color_eyre::Result;
 use std::fs::read_to_string;
@@ -31,7 +32,6 @@ struct App {
     tab: usize,
     #[allow(dead_code)]
     file_name: String,
-    eliminated: Vec<String>,
 }
 
 enum Modes {
@@ -46,6 +46,7 @@ enum Modes {
 impl App {
 
     fn new(filename: String) -> App {
+        println!("Loading file {}...", filename);
         App {
             mode: Modes::Home,
             scroll_level: 0,
@@ -55,11 +56,13 @@ impl App {
             ),
             file_name: filename,
             tab: 0,
-            eliminated: vec![],
         }
     }
 
     fn run(&mut self, terminal: &mut DefaultTerminal) -> Result<()> {
+        println!("Starting terminal application...");
+        std::thread::sleep(time::Duration::from_secs(1));
+        terminal.clear()?;
         while !matches!(self.mode,Modes::Quit) {
             terminal.draw(|frame| self.draw(frame))?;
             self.handle_events()?;
@@ -100,14 +103,10 @@ impl App {
                     match self.mode {
                         Modes::SentenceBrowser => {
                             let to_require = self.input_buffer.iter().collect();
-                            self.eliminated.push(format!("+ Word {}: {}",self.tab + 1, to_require));
-                            self.eliminated.rotate_right(1);
                             self.words.require_word_positional(to_require, self.tab);
                         },
                         _ => {
                             let to_require = self.input_buffer.iter().collect();
-                            self.eliminated.push(format!("+ Word: {}",to_require));
-                            self.eliminated.rotate_right(1);
                             self.words.require_word(to_require);
                         }
                     }
@@ -119,15 +118,11 @@ impl App {
                         Modes::RuleApply => self.apply_rules(self.scroll_level),
                         Modes::SentenceBrowser => {
                             let to_remove = self.input_buffer.iter().collect();
-                            self.eliminated.push(format!("X Word {}: {}",self.tab + 1, to_remove));
-                            self.eliminated.rotate_right(1);
                             self.words.remove_words_positional(vec![to_remove],self.tab);
                         }
                         _ => 
                             {
                                 let to_remove = self.input_buffer.iter().collect();
-                                self.eliminated.push(format!("X Word: {}",to_remove));
-                                self.eliminated.rotate_right(1);
                                 self.words.remove_words(vec![to_remove]);
                             },
                     }
@@ -160,7 +155,13 @@ impl App {
 
     fn apply_rules(&mut self, index: usize) {
         match index {
-            0 => todo!(),
+            0 => {
+                //gather complete word lists for each position (can be cribbed from positional hists)
+                //for each word in a given position
+                    //check blank spaces
+                //okay this rapidly becomes extremely complicated (infeasible? because each word will develop dependencies on other words. very difficult to calculate much less present)
+                todo!()
+            },
             1 => {
                 //gets rid of two letter words that no one uses
                 self.words.remove_words(
@@ -170,6 +171,30 @@ impl App {
                 .collect()                
                 );
             },
+            2 => {
+                //removes a few common words that eliminate a large swath of transforms
+                self.words.remove_words([
+                    "lucy",
+                    "nfl",
+                    "rico",
+                    "dana",
+                    "nsw",
+                    "toyota",
+                    "nfl",
+                    "nba",
+                    "orgy",
+                    "nbc",
+                    "asthma",
+                    "sweden",
+                    "apollo",
+                    "sql",
+                    "acid",
+                    "ipod",
+                    "incl",
+                    "divx",
+                    "ciao",
+                ].into_iter().map(|word| word.to_string()).collect());
+            }
             _ => return,
         }
     }
@@ -285,12 +310,13 @@ impl Widget for &App {
             };
 
             // Letters from the left of the original transform on the card must all be used within the blank spaces
-            lines.push(create_line(0, "All letters from L side of original xform must be used"));
+            lines.push(create_line(0, "All letters from L side of original xform must be used within blanks"));
 
             // Remove unlikely two-letter words
             lines.push(create_line(1, "Eliminate ridiculous two letter words like 'oo'"));
 
-            
+            lines.push(create_line( 2, "Eliminate several unlikely words (lucy, nsw, toyota) that greatly reduce state-space"));
+
             Text::from(lines)
         };
 
@@ -367,11 +393,7 @@ impl Widget for &App {
         };
             
 
-        //text hints bar: gives text hints
-        let hint_bar = Line::from(self.input_buffer.iter().collect::<String>());
         //bottom bar: lists modes and indicates current mode
-
-
         let bottom_bar = Line::from(vec![
             "|".into(),
             if matches!(self.mode,Modes::Home) {" Home ".on_light_magenta()} else {" Home ".into()},
@@ -394,14 +416,6 @@ impl Widget for &App {
             .title_bottom(bottom_bar.centered())
             .border_set(border::ROUNDED)
             .padding(ratatui::widgets::Padding::new(2, 2, 0, 0));
-
-        let counter_text = Text::from(vec![Line::from(vec![
-            "Value: ".into(),
-            self.scroll_level.to_string().yellow(),
-        ]),
-        hint_bar]);
-
-
         
         let paragraph = Paragraph::new(
             match self.mode {
@@ -409,7 +423,7 @@ impl Widget for &App {
                 Modes::WordEliminator => word_browser,
                 Modes::RuleApply => rules_apply,
                 Modes::SentenceBrowser => sentence_browser,
-                _ => counter_text,
+                _ => Text::from("Not yet implemented..."),
             }
         )
             .left_aligned()
@@ -427,7 +441,7 @@ impl Widget for &App {
 
         let elim_paragraph = Paragraph::new(
                 Text::from(
-                    self.eliminated.join("\n")
+                    self.words.history()
                 )
             )
             .left_aligned()
