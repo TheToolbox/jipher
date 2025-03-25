@@ -8,6 +8,7 @@ use combinations::Combinations;
 use std::io::prelude::*;
 
 const PUZZLE : &str = "t. .i.d t..rt. .o .o. t... na. ..ne y.. .w.lm. ..cy d.ne";
+//go find george to toy ____ nam?
 
 //fs.readFileSync('./node_modules/word-list/commons.txt', 'utf8').split('\n')
 //.filter(word => word.length < 7);
@@ -58,7 +59,7 @@ impl<'a> Transform<'a> {
 
     fn into_hashmap(&self) -> HashMap<char,char>{
         std::iter::zip(
-            self.right.iter(),
+            self.left.iter(),
             self.right.iter())
             .map(|(a,b)| {(*a,*b)})
             .collect()
