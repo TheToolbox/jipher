@@ -23,9 +23,7 @@ fn main() {
             output
         },
         // Otherwise Calculate one and write it to file
-        Err(x) => {
-            let errs = format!("{}",x);
-            println!("Err: {}",errs[errs.len() - 100 .. errs.len()].to_string());
+        Err(_) => {
             println!("No prior solutions file found at {}\n Will now begin calculating solution...", path);
             thread::sleep(std::time::Duration::from_secs(1));
             let output = solutions::get_all_solutions();
