@@ -1,10 +1,11 @@
-use serde_json;
-use std::{collections::{HashMap, HashSet}, time::Duration, u64};
-
+use std::{collections::HashSet, time::Duration, u64};
+use crate::histogram::Histogram;
+use crate::solutions::TransformAndPossibilitiesList;
+/*
 type TransformHash = HashMap<char,char>;
 type Possibilities = Vec<Vec<String>>;
 type TransformAndPossibilities = (TransformHash,Possibilities);
-type TransformAndPossibilitiesList =  Vec<TransformAndPossibilities>;
+type TransformAndPossibilitiesList =  Vec<TransformAndPossibilities>; */
 
 #[allow(dead_code)]
 enum UpdatableValue<T> {
@@ -22,18 +23,18 @@ pub struct Words {
 }
 
 impl Words {
-    pub fn new(input: &str) -> Words {
-        let state: TransformAndPossibilitiesList = serde_json::from_str(input).unwrap();
+    pub fn new(data: TransformAndPossibilitiesList) -> Words {
 
         let mut me = Words {
-            state,
+            state: data,
             word_hist: Histogram::new(),//UpdatableValue::Invalid,
             total_combinations: 0,
             critical_words: Histogram::new(),
             positional_word_hists: vec![],
             history: vec![],
         };
-        println!("Loaded output file, now processing for use...");
+
+        println!("Calculating stats on possiblities...");
         me.update_all();
         me
     }
@@ -43,12 +44,13 @@ impl Words {
     }
 
     fn update_all(&mut self) {
-        //second pass to remove any transforms that have no complete possible sentences
+        //second pass to remove any transforms that have no possible complete sentences
         self.state
         .retain(|(_transform, words)| {
             words.iter().map(|word_options| word_options.len() as u64).product::<u64>() != 0
         });
 
+        //probably could be much-optimized but hasn't been necessary so far, so a brute-force update is what you get
         self.update_word_hist();
         self.update_total_combinations();
         self.update_critical_words();
@@ -246,35 +248,3 @@ impl Words {
 
 
 
-
-#[allow(dead_code)]
-pub struct Histogram<T> {
-    data: HashMap<T,u64>
-}
-
-#[allow(dead_code)]
-impl<T: Eq + std::hash::Hash + Clone> Histogram<T> {
-    fn new() -> Histogram<T> {
-        Histogram {
-            data: HashMap::new()
-        }
-    }
-
-    fn push(&mut self, s: &T) {
-        *self.data.entry(s.clone()).or_insert(0) += 1;
-    }
-
-    fn push_multiple(&mut self, s: &T, increment: u64) {
-        *self.data.entry(s.clone()).or_insert(0) += increment;
-    }
-
-    pub fn most_popular(&self) -> Vec<(T, u64)> {
-        let mut result = self.data.iter().map(|(s,n)| (s.clone(),n.clone())).collect::<Vec<_>>();
-        result.sort_by_key(|(_,count)| u64::MAX-(*count));
-        result
-    }
-
-    fn clear(&mut self) {
-        self.data.clear();
-    }
-}

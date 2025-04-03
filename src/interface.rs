@@ -1,7 +1,6 @@
 use core::time;
 use std::vec;
 use color_eyre::Result;
-use std::fs::read_to_string;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
     buffer::Buffer,
@@ -12,15 +11,15 @@ use ratatui::{
     widgets::{Block, Paragraph, Widget},
     DefaultTerminal, Frame,
 };
-mod words;
-use crate::words::Words;
+use crate::solutions::{self, TransformAndPossibilitiesList};
+use super::words::Words;
 
-fn main() -> Result<()> {
-    color_eyre::install()?;
+pub fn run(data: solutions::TransformAndPossibilitiesList) {
+    color_eyre::install().unwrap();
     let terminal = &mut ratatui::init();
-    let result = App::new("../output.json".to_string()).run(terminal);
+    let result = App::new(data).run(terminal);
     ratatui::restore();
-    result
+    result.unwrap();
 }
 
 // Describes application state
@@ -30,8 +29,6 @@ struct App {
     input_buffer: Vec<char>,
     words: Words,
     tab: usize,
-    #[allow(dead_code)]
-    file_name: String,
 }
 
 enum Modes {
@@ -45,16 +42,12 @@ enum Modes {
 
 impl App {
 
-    fn new(filename: String) -> App {
-        println!("Loading file {}...", filename);
+    fn new(data: TransformAndPossibilitiesList) -> App {
         App {
             mode: Modes::Home,
             scroll_level: 0,
             input_buffer: vec![],
-            words:     Words::new(
-                read_to_string(&filename).unwrap().as_str()
-            ),
-            file_name: filename,
+            words:     Words::new(data),
             tab: 0,
         }
     }
